@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AppLayout, NavItem } from "@/components/AppLayout";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
@@ -21,32 +21,52 @@ const COLORS = { low: "hsl(var(--success))", medium: "hsl(var(--warning))", high
 const HRDashboard = () => {
   const [rows, setRows] = useState<EmpRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const reloadTimer = useRef<number | null>(null);
+
+  const load = async () => {
+    const [{ data: profiles }, { data: subs }, { data: risks }] = await Promise.all([
+      supabase.from("profiles").select("user_id,full_name,email,department"),
+      supabase.from("submissions").select("user_id,responses"),
+      supabase.from("risk_assessments").select("user_id,risk_score,risk_level"),
+    ]);
+    const subMap = new Map((subs ?? []).map((s: any) => [s.user_id, s]));
+    const riskMap = new Map((risks ?? []).map((r: any) => [r.user_id, r]));
+    const merged: EmpRow[] = (profiles ?? []).map((p: any) => {
+      const r = riskMap.get(p.user_id);
+      const s = subMap.get(p.user_id);
+      return {
+        user_id: p.user_id,
+        full_name: p.full_name,
+        email: p.email,
+        department: p.department || s?.responses?.department || "—",
+        risk_score: r?.risk_score ?? null,
+        risk_level: r?.risk_level ?? null,
+        submitted: !!s,
+      };
+    });
+    setRows(merged);
+    setLoading(false);
+  };
 
   useEffect(() => {
-    (async () => {
-      const [{ data: profiles }, { data: subs }, { data: risks }] = await Promise.all([
-        supabase.from("profiles").select("user_id,full_name,email,department"),
-        supabase.from("submissions").select("user_id,responses"),
-        supabase.from("risk_assessments").select("user_id,risk_score,risk_level"),
-      ]);
-      const subMap = new Map((subs ?? []).map((s: any) => [s.user_id, s]));
-      const riskMap = new Map((risks ?? []).map((r: any) => [r.user_id, r]));
-      const merged: EmpRow[] = (profiles ?? []).map((p: any) => {
-        const r = riskMap.get(p.user_id);
-        const s = subMap.get(p.user_id);
-        return {
-          user_id: p.user_id,
-          full_name: p.full_name,
-          email: p.email,
-          department: p.department || s?.responses?.department || "—",
-          risk_score: r?.risk_score ?? null,
-          risk_level: r?.risk_level ?? null,
-          submitted: !!s,
-        };
-      });
-      setRows(merged);
-      setLoading(false);
-    })();
+    load();
+
+    const debouncedReload = () => {
+      if (reloadTimer.current) window.clearTimeout(reloadTimer.current);
+      reloadTimer.current = window.setTimeout(() => load(), 300);
+    };
+
+    const channel = supabase
+      .channel("hr-dashboard-realtime")
+      .on("postgres_changes", { event: "*", schema: "public", table: "submissions" }, debouncedReload)
+      .on("postgres_changes", { event: "*", schema: "public", table: "risk_assessments" }, debouncedReload)
+      .on("postgres_changes", { event: "*", schema: "public", table: "profiles" }, debouncedReload)
+      .subscribe();
+
+    return () => {
+      if (reloadTimer.current) window.clearTimeout(reloadTimer.current);
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   const stats = useMemo(() => {

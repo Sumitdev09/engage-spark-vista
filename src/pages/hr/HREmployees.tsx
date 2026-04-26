@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AppLayout, NavItem } from "@/components/AppLayout";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
@@ -13,31 +13,52 @@ const HREmployees = () => {
   const [fields, setFields] = useState<any[]>([]);
   const [q, setQ] = useState("");
   const [active, setActive] = useState<any | null>(null);
+  const reloadTimer = useRef<number | null>(null);
+
+  const load = async () => {
+    const [{ data: profiles }, { data: subs }, { data: risks }, { data: ff }] = await Promise.all([
+      supabase.from("profiles").select("user_id,full_name,email,department"),
+      supabase.from("submissions").select("user_id,responses,updated_at"),
+      supabase.from("risk_assessments").select("user_id,risk_score,risk_level,insights,recommendations,ai_generated"),
+      supabase.from("form_fields").select("*").order("position"),
+    ]);
+    const subMap = new Map((subs ?? []).map((s: any) => [s.user_id, s]));
+    const riskMap = new Map((risks ?? []).map((r: any) => [r.user_id, r]));
+    const merged = (profiles ?? []).map((p: any) => {
+      const r = riskMap.get(p.user_id);
+      const s = subMap.get(p.user_id);
+      return {
+        ...p,
+        department: p.department || s?.responses?.department || "—",
+        responses: s?.responses ?? null,
+        updated_at: s?.updated_at,
+        ...r,
+      };
+    });
+    setRows(merged);
+    setFields(ff ?? []);
+    setActive((prev: any) => (prev ? merged.find((m) => m.user_id === prev.user_id) ?? prev : prev));
+  };
 
   useEffect(() => {
-    (async () => {
-      const [{ data: profiles }, { data: subs }, { data: risks }, { data: ff }] = await Promise.all([
-        supabase.from("profiles").select("user_id,full_name,email,department"),
-        supabase.from("submissions").select("user_id,responses,updated_at"),
-        supabase.from("risk_assessments").select("user_id,risk_score,risk_level,insights,recommendations,ai_generated"),
-        supabase.from("form_fields").select("*").order("position"),
-      ]);
-      const subMap = new Map((subs ?? []).map((s: any) => [s.user_id, s]));
-      const riskMap = new Map((risks ?? []).map((r: any) => [r.user_id, r]));
-      const merged = (profiles ?? []).map((p: any) => {
-        const r = riskMap.get(p.user_id);
-        const s = subMap.get(p.user_id);
-        return {
-          ...p,
-          department: p.department || s?.responses?.department || "—",
-          responses: s?.responses ?? null,
-          updated_at: s?.updated_at,
-          ...r,
-        };
-      });
-      setRows(merged);
-      setFields(ff ?? []);
-    })();
+    load();
+
+    const debouncedReload = () => {
+      if (reloadTimer.current) window.clearTimeout(reloadTimer.current);
+      reloadTimer.current = window.setTimeout(() => load(), 300);
+    };
+
+    const channel = supabase
+      .channel("hr-employees-realtime")
+      .on("postgres_changes", { event: "*", schema: "public", table: "submissions" }, debouncedReload)
+      .on("postgres_changes", { event: "*", schema: "public", table: "risk_assessments" }, debouncedReload)
+      .on("postgres_changes", { event: "*", schema: "public", table: "profiles" }, debouncedReload)
+      .subscribe();
+
+    return () => {
+      if (reloadTimer.current) window.clearTimeout(reloadTimer.current);
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   const filtered = rows.filter((r) =>
