@@ -162,6 +162,20 @@ const HREmployees = () => {
             <>
               <DialogHeader>
                 <DialogTitle>{active.full_name || active.email}</DialogTitle>
+                <div className="flex items-center gap-2 text-xs text-muted-foreground pt-1">
+                  <span className="relative flex h-2 w-2">
+                    <span className="absolute inline-flex h-full w-full rounded-full bg-primary opacity-60 animate-ping" />
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-primary" />
+                  </span>
+                  Last updated{" "}
+                  {active.updated_at ? (
+                    <span title={new Date(active.updated_at).toLocaleString()}>
+                      {formatRelative(active.updated_at)} · {new Date(active.updated_at).toLocaleString()}
+                    </span>
+                  ) : (
+                    <span>— no submission yet</span>
+                  )}
+                </div>
               </DialogHeader>
               <div className="space-y-5">
                 <div className="grid grid-cols-3 gap-3">
@@ -169,11 +183,6 @@ const HREmployees = () => {
                   <Stat label="Level" value={active.risk_level || "—"} />
                   <Stat label="Department" value={active.department} />
                 </div>
-                {active.updated_at && (
-                  <div className="text-xs text-muted-foreground">
-                    Last updated {formatRelative(active.updated_at)} · {new Date(active.updated_at).toLocaleString()}
-                  </div>
-                )}
                 {active.insights && (
                   <Card className="p-4 bg-gradient-subtle">
                     <div className="text-xs uppercase tracking-wider text-muted-foreground mb-1 flex items-center gap-2">
