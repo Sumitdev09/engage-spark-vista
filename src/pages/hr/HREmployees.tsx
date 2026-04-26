@@ -162,19 +162,32 @@ const HREmployees = () => {
             <>
               <DialogHeader>
                 <DialogTitle>{active.full_name || active.email}</DialogTitle>
-                <div className="flex items-center gap-2 text-xs text-muted-foreground pt-1">
-                  <span className="relative flex h-2 w-2">
-                    <span className="absolute inline-flex h-full w-full rounded-full bg-primary opacity-60 animate-ping" />
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-primary" />
-                  </span>
-                  Last updated{" "}
-                  {active.updated_at ? (
-                    <span title={new Date(active.updated_at).toLocaleString()}>
-                      {formatRelative(active.updated_at)} · {new Date(active.updated_at).toLocaleString()}
-                    </span>
+                <div className="flex items-center gap-3 flex-wrap pt-1">
+                  {active.responses ? (
+                    <Badge className="bg-success text-success-foreground gap-1">
+                      <span className="h-1.5 w-1.5 rounded-full bg-success-foreground" />
+                      Submitted
+                    </Badge>
                   ) : (
-                    <span>— no submission yet</span>
+                    <Badge variant="outline" className="gap-1 border-warning text-warning">
+                      <span className="h-1.5 w-1.5 rounded-full bg-warning" />
+                      Not submitted
+                    </Badge>
                   )}
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <span className="relative flex h-2 w-2">
+                      <span className="absolute inline-flex h-full w-full rounded-full bg-primary opacity-60 animate-ping" />
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-primary" />
+                    </span>
+                    Last updated{" "}
+                    {active.updated_at ? (
+                      <span title={new Date(active.updated_at).toLocaleString()}>
+                        {formatRelative(active.updated_at)} · {new Date(active.updated_at).toLocaleString()}
+                      </span>
+                    ) : (
+                      <span>— no submission yet</span>
+                    )}
+                  </div>
                 </div>
               </DialogHeader>
               <div className="space-y-5">
