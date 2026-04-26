@@ -97,6 +97,7 @@ const HREmployees = () => {
                   <th className="text-left p-4 font-medium">Status</th>
                   <th className="text-left p-4 font-medium">Risk score</th>
                   <th className="text-left p-4 font-medium">Risk level</th>
+                  <th className="text-left p-4 font-medium">Last updated</th>
                 </tr>
               </thead>
               <tbody>
@@ -117,10 +118,11 @@ const HREmployees = () => {
                       {r.risk_level === "low" && <Badge className="bg-success text-success-foreground">Low</Badge>}
                       {!r.risk_level && <span className="text-muted-foreground">—</span>}
                     </td>
+                    <td className="p-4 text-muted-foreground text-xs">{formatRelative(r.updated_at)}</td>
                   </tr>
                 ))}
                 {filtered.length === 0 && (
-                  <tr><td colSpan={5} className="p-8 text-center text-muted-foreground">No employees yet.</td></tr>
+                  <tr><td colSpan={6} className="p-8 text-center text-muted-foreground">No employees yet.</td></tr>
                 )}
               </tbody>
             </table>
@@ -141,6 +143,11 @@ const HREmployees = () => {
                   <Stat label="Level" value={active.risk_level || "—"} />
                   <Stat label="Department" value={active.department} />
                 </div>
+                {active.updated_at && (
+                  <div className="text-xs text-muted-foreground">
+                    Last updated {formatRelative(active.updated_at)} · {new Date(active.updated_at).toLocaleString()}
+                  </div>
+                )}
                 {active.insights && (
                   <Card className="p-4 bg-gradient-subtle">
                     <div className="text-xs uppercase tracking-wider text-muted-foreground mb-1 flex items-center gap-2">
@@ -184,5 +191,22 @@ const Stat = ({ label, value }: { label: string; value: string }) => (
     <div className="font-semibold capitalize">{value}</div>
   </div>
 );
+
+function formatRelative(iso?: string | null) {
+  if (!iso) return "—";
+  const then = new Date(iso).getTime();
+  const diff = Date.now() - then;
+  if (diff < 0) return "just now";
+  const s = Math.floor(diff / 1000);
+  if (s < 10) return "just now";
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  if (d < 30) return `${d}d ago`;
+  return new Date(iso).toLocaleDateString();
+}
 
 export default HREmployees;
