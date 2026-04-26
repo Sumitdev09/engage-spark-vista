@@ -14,6 +14,7 @@ type EmpRow = {
   risk_score: number | null;
   risk_level: string | null;
   submitted: boolean;
+  updated_at: string | null;
 };
 
 const COLORS = { low: "hsl(var(--success))", medium: "hsl(var(--warning))", high: "hsl(var(--danger))" };
@@ -21,12 +22,14 @@ const COLORS = { low: "hsl(var(--success))", medium: "hsl(var(--warning))", high
 const HRDashboard = () => {
   const [rows, setRows] = useState<EmpRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [lastSync, setLastSync] = useState<Date | null>(null);
+  const [, setTick] = useState(0);
   const reloadTimer = useRef<number | null>(null);
 
   const load = async () => {
     const [{ data: profiles }, { data: subs }, { data: risks }] = await Promise.all([
       supabase.from("profiles").select("user_id,full_name,email,department"),
-      supabase.from("submissions").select("user_id,responses"),
+      supabase.from("submissions").select("user_id,responses,updated_at"),
       supabase.from("risk_assessments").select("user_id,risk_score,risk_level"),
     ]);
     const subMap = new Map((subs ?? []).map((s: any) => [s.user_id, s]));
@@ -42,9 +45,11 @@ const HRDashboard = () => {
         risk_score: r?.risk_score ?? null,
         risk_level: r?.risk_level ?? null,
         submitted: !!s,
+        updated_at: s?.updated_at ?? null,
       };
     });
     setRows(merged);
+    setLastSync(new Date());
     setLoading(false);
   };
 
@@ -67,6 +72,12 @@ const HRDashboard = () => {
       if (reloadTimer.current) window.clearTimeout(reloadTimer.current);
       supabase.removeChannel(channel);
     };
+  }, []);
+
+  // Tick every 15s so relative timestamps stay fresh
+  useEffect(() => {
+    const id = window.setInterval(() => setTick((t) => t + 1), 15000);
+    return () => window.clearInterval(id);
   }, []);
 
   const stats = useMemo(() => {
@@ -114,7 +125,16 @@ const HRDashboard = () => {
     >
       <div className="space-y-8">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Attrition Overview</h1>
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <h1 className="text-3xl font-bold tracking-tight">Attrition Overview</h1>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-success" />
+              </span>
+              Live · synced {formatRelative(lastSync?.toISOString() ?? null)}
+            </div>
+          </div>
           <p className="text-muted-foreground">Real-time view of engagement and risk across your team.</p>
         </div>
 
@@ -169,7 +189,9 @@ const HRDashboard = () => {
                 <div key={r.user_id} className="flex items-center justify-between p-3 rounded-lg border border-border hover:bg-secondary/50 transition-colors">
                   <div>
                     <div className="font-medium">{r.full_name || r.email}</div>
-                    <div className="text-xs text-muted-foreground">{r.department}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {r.department} · updated {formatRelative(r.updated_at)}
+                    </div>
                   </div>
                   <div className="flex items-center gap-3">
                     <div className="text-sm font-semibold text-danger">{Number(r.risk_score).toFixed(0)}/100</div>
@@ -199,5 +221,22 @@ const StatCard = ({ label, value, icon: Icon, color }: any) => (
     </div>
   </Card>
 );
+
+function formatRelative(iso?: string | null) {
+  if (!iso) return "—";
+  const then = new Date(iso).getTime();
+  const diff = Date.now() - then;
+  if (diff < 0) return "just now";
+  const s = Math.floor(diff / 1000);
+  if (s < 10) return "just now";
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  if (d < 30) return `${d}d ago`;
+  return new Date(iso).toLocaleDateString();
+}
 
 export default HRDashboard;
