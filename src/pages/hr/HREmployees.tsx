@@ -6,7 +6,8 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Search } from "lucide-react";
+import { Search, RefreshCw } from "lucide-react";
+import { toast } from "sonner";
 
 const HREmployees = () => {
   const [rows, setRows] = useState<any[]>([]);
@@ -14,6 +15,7 @@ const HREmployees = () => {
   const [q, setQ] = useState("");
   const [active, setActive] = useState<any | null>(null);
   const [, setTick] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
   const reloadTimer = useRef<number | null>(null);
 
   const load = async () => {
@@ -39,6 +41,18 @@ const HREmployees = () => {
     setRows(merged);
     setFields(ff ?? []);
     setActive((prev: any) => (prev ? merged.find((m) => m.user_id === prev.user_id) ?? prev : prev));
+  };
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await load();
+      toast.success("Employee data refreshed");
+    } catch (e: any) {
+      toast.error(e?.message ?? "Refresh failed");
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   useEffect(() => {
@@ -87,9 +101,15 @@ const HREmployees = () => {
             <h1 className="text-3xl font-bold tracking-tight">Employees</h1>
             <p className="text-muted-foreground">Click a row to view detailed responses and AI insights.</p>
           </div>
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search…" className="pl-9 w-72" />
+          <div className="flex items-center gap-2">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search…" className="pl-9 w-72" />
+            </div>
+            <Button variant="outline" size="sm" onClick={handleRefresh} disabled={refreshing}>
+              <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? "animate-spin" : ""}`} />
+              {refreshing ? "Refreshing…" : "Refresh"}
+            </Button>
           </div>
         </div>
 

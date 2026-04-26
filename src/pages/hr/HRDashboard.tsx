@@ -3,7 +3,9 @@ import { AppLayout, NavItem } from "@/components/AppLayout";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { AlertTriangle, TrendingDown, Users, Activity } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
+import { AlertTriangle, TrendingDown, Users, Activity, RefreshCw } from "lucide-react";
 import { Bar, BarChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis, Legend } from "recharts";
 
 type EmpRow = {
@@ -22,6 +24,7 @@ const COLORS = { low: "hsl(var(--success))", medium: "hsl(var(--warning))", high
 const HRDashboard = () => {
   const [rows, setRows] = useState<EmpRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [lastSync, setLastSync] = useState<Date | null>(null);
   const [, setTick] = useState(0);
   const reloadTimer = useRef<number | null>(null);
@@ -51,6 +54,18 @@ const HRDashboard = () => {
     setRows(merged);
     setLastSync(new Date());
     setLoading(false);
+  };
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await load();
+      toast.success("Dashboard refreshed");
+    } catch (e: any) {
+      toast.error(e?.message ?? "Refresh failed");
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   useEffect(() => {
@@ -127,12 +142,18 @@ const HRDashboard = () => {
         <div>
           <div className="flex items-center justify-between flex-wrap gap-2">
             <h1 className="text-3xl font-bold tracking-tight">Attrition Overview</h1>
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75" />
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-success" />
-              </span>
-              Live · synced {formatRelative(lastSync?.toISOString() ?? null)}
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-success" />
+                </span>
+                Live · synced {formatRelative(lastSync?.toISOString() ?? null)}
+              </div>
+              <Button variant="outline" size="sm" onClick={handleRefresh} disabled={refreshing}>
+                <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? "animate-spin" : ""}`} />
+                {refreshing ? "Refreshing…" : "Refresh data"}
+              </Button>
             </div>
           </div>
           <p className="text-muted-foreground">Real-time view of engagement and risk across your team.</p>
