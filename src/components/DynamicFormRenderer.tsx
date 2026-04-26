@@ -2,6 +2,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Star } from "lucide-react";
 
 export type FormField = {
@@ -73,6 +74,10 @@ const FieldRenderer = ({
   switch (field.field_type) {
     case "text":
       return wrap(<Input value={value ?? ""} onChange={(e) => onChange(e.target.value)} required={field.required} />);
+    case "email":
+      return wrap(<Input type="email" value={value ?? ""} onChange={(e) => onChange(e.target.value)} required={field.required} />);
+    case "date":
+      return wrap(<Input type="date" value={value ?? ""} onChange={(e) => onChange(e.target.value)} required={field.required} />);
     case "textarea":
       return wrap(<Textarea value={value ?? ""} onChange={(e) => onChange(e.target.value)} rows={4} required={field.required} />, true);
     case "number":
@@ -131,6 +136,29 @@ const FieldRenderer = ({
             ))}
           </SelectContent>
         </Select>
+      );
+    }
+    case "multiselect": {
+      const opts: string[] = Array.isArray(field.options) ? field.options : [];
+      const arr: string[] = Array.isArray(value) ? value : [];
+      const toggle = (o: string) =>
+        arr.includes(o) ? onChange(arr.filter((x) => x !== o)) : onChange([...arr, o]);
+      return wrap(
+        <div className="grid grid-cols-2 gap-2">
+          {opts.map((o) => (
+            <label
+              key={o}
+              className={`flex items-center gap-2 rounded-lg border-2 px-3 py-2 cursor-pointer transition-all ${
+                arr.includes(o) ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"
+              }`}
+            >
+              <Checkbox checked={arr.includes(o)} onCheckedChange={() => toggle(o)} />
+              <span className="text-sm">{o}</span>
+            </label>
+          ))}
+          {opts.length === 0 && <p className="text-xs text-muted-foreground">No options configured.</p>}
+        </div>,
+        true
       );
     }
     default:
