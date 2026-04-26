@@ -13,6 +13,7 @@ const HREmployees = () => {
   const [fields, setFields] = useState<any[]>([]);
   const [q, setQ] = useState("");
   const [active, setActive] = useState<any | null>(null);
+  const [, setTick] = useState(0);
   const reloadTimer = useRef<number | null>(null);
 
   const load = async () => {
@@ -59,6 +60,11 @@ const HREmployees = () => {
       if (reloadTimer.current) window.clearTimeout(reloadTimer.current);
       supabase.removeChannel(channel);
     };
+  }, []);
+
+  useEffect(() => {
+    const id = window.setInterval(() => setTick((t) => t + 1), 15000);
+    return () => window.clearInterval(id);
   }, []);
 
   const filtered = rows.filter((r) =>
