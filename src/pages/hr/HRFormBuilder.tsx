@@ -31,6 +31,9 @@ import {
   Star,
   Trash2,
   Type,
+  Gauge,
+  TrendingUp,
+  Info,
 } from "lucide-react";
 import { DynamicFormRenderer, FormField } from "@/components/DynamicFormRenderer";
 import {
@@ -139,6 +142,36 @@ const HRFormBuilder = () => {
     const scored = fields.filter((f) => f.risk_weight && f.risk_weight > 0).length;
     return { total: fields.length, active, required, scored };
   }, [fields]);
+
+  // Risk scoring helper — compute how each field contributes to the overall attrition score.
+  const riskBreakdown = useMemo(() => {
+    const scored = fields.filter((f) => f.active && f.risk_weight && f.risk_weight > 0);
+    const totalWeight = scored.reduce((a, f) => a + Number(f.risk_weight ?? 0), 0);
+    const items = scored
+      .map((f) => ({
+        field: f,
+        weight: Number(f.risk_weight ?? 0),
+        share: totalWeight ? (Number(f.risk_weight ?? 0) / totalWeight) * 100 : 0,
+      }))
+      .sort((a, b) => b.weight - a.weight);
+    const missingDirection = scored.filter((f) => !f.risk_direction).length;
+    return { items, totalWeight, missingDirection };
+  }, [fields]);
+
+  // Live impact for the field currently being edited
+  const editingImpact = useMemo(() => {
+    if (!editing) return null;
+    const w = Number(editing.risk_weight ?? 0);
+    if (!w) return { share: 0, totalAfter: riskBreakdown.totalWeight, rank: null as number | null };
+    const others = riskBreakdown.items
+      .filter((it) => it.field.id !== editing.id)
+      .map((it) => it.weight);
+    const totalAfter = others.reduce((a, x) => a + x, 0) + w;
+    const share = totalAfter ? (w / totalAfter) * 100 : 0;
+    const sorted = [...others, w].sort((a, b) => b - a);
+    const rank = sorted.indexOf(w) + 1;
+    return { share, totalAfter, rank };
+  }, [editing, riskBreakdown]);
 
   const openNew = (type?: string) => {
     setEditing({
@@ -351,6 +384,131 @@ const HRFormBuilder = () => {
                     </div>
                   </SortableContext>
                 </DndContext>
+              )}
+            </Card>
+
+            {/* Risk scoring helper */}
+            <Card className="shadow-soft overflow-hidden">
+              <div className="p-5 border-b border-border bg-gradient-subtle">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-2">
+                    <div className="h-9 w-9 rounded-lg grid place-items-center" style={{ background: "var(--gradient-primary)" }}>
+                      <Gauge className="h-4 w-4 text-white" />
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-sm">Risk scoring helper</h3>
+                      <p className="text-xs text-muted-foreground">
+                        See how each question's weight contributes to the overall attrition score.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline" className="gap-1">
+                      <TrendingUp className="h-3 w-3 text-primary" /> Total weight {riskBreakdown.totalWeight.toFixed(1)}
+                    </Badge>
+                    <Badge variant="outline">{riskBreakdown.items.length} scored</Badge>
+                  </div>
+                </div>
+                {riskBreakdown.missingDirection > 0 && (
+                  <div className="mt-3 flex items-start gap-2 p-2.5 rounded-lg border border-warning/30 bg-warning/5 text-xs text-warning">
+                    <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                    <span>
+                      {riskBreakdown.missingDirection} scored field{riskBreakdown.missingDirection > 1 ? "s have" : " has"} no
+                      direction set — answers won't count toward the risk score until you choose
+                      "Lower = higher risk" or "Higher = higher risk".
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {riskBreakdown.items.length === 0 ? (
+                <div className="p-8 text-center">
+                  <p className="text-sm font-medium">No risk-scored questions yet</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Open any active question and set a risk weight to see its impact here.
+                  </p>
+                </div>
+              ) : (
+                <div className="p-4 space-y-2.5">
+                  {/* Stacked composition bar */}
+                  <div className="space-y-1.5">
+                    <div className="flex h-2.5 rounded-full overflow-hidden bg-secondary">
+                      {riskBreakdown.items.map((it, i) => {
+                        const hue = (i * 47) % 360;
+                        return (
+                          <div
+                            key={it.field.id}
+                            title={`${it.field.label} — ${it.share.toFixed(1)}%`}
+                            style={{
+                              width: `${it.share}%`,
+                              background: `hsl(${hue} 75% 55%)`,
+                            }}
+                          />
+                        );
+                      })}
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">
+                      Composition of the overall attrition score by question weight
+                    </p>
+                  </div>
+
+                  <div className="space-y-1.5 mt-3">
+                    {riskBreakdown.items.map((it, i) => {
+                      const hue = (i * 47) % 360;
+                      const meta = typeMeta(it.field.field_type);
+                      const Icon = meta.icon;
+                      const dirLabel =
+                        it.field.risk_direction === "higher_risk_low"
+                          ? "Lower answer ⇒ higher risk"
+                          : it.field.risk_direction === "higher_risk_high"
+                          ? "Higher answer ⇒ higher risk"
+                          : "No direction";
+                      return (
+                        <button
+                          key={it.field.id}
+                          onClick={() => openEdit(it.field)}
+                          className="w-full text-left p-2.5 rounded-lg border border-border hover:border-primary/40 hover:bg-secondary/40 transition-all"
+                        >
+                          <div className="flex items-center gap-2.5">
+                            <span
+                              className="h-2.5 w-2.5 rounded-full shrink-0"
+                              style={{ background: `hsl(${hue} 75% 55%)` }}
+                            />
+                            <Icon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                            <span className="text-sm font-medium truncate flex-1">{it.field.label}</span>
+                            <span className="text-xs text-muted-foreground tabular-nums">
+                              weight {it.weight}
+                            </span>
+                            <Badge
+                              variant="outline"
+                              className="text-[10px] px-1.5 tabular-nums min-w-[52px] justify-center"
+                            >
+                              {it.share.toFixed(1)}%
+                            </Badge>
+                          </div>
+                          <div className="mt-1.5 ml-[18px] flex items-center gap-2">
+                            <div className="h-1.5 flex-1 rounded-full bg-secondary overflow-hidden">
+                              <div
+                                className="h-full rounded-full transition-all"
+                                style={{
+                                  width: `${it.share}%`,
+                                  background: `hsl(${hue} 75% 55%)`,
+                                }}
+                              />
+                            </div>
+                            <span
+                              className={`text-[10px] ${
+                                it.field.risk_direction ? "text-muted-foreground" : "text-warning"
+                              }`}
+                            >
+                              {dirLabel}
+                            </span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               )}
             </Card>
           </div>
@@ -571,6 +729,54 @@ const HRFormBuilder = () => {
                       </Select>
                     </div>
                   </div>
+
+                  {/* Live impact estimator */}
+                  <Card className="p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Gauge className="h-4 w-4 text-primary" />
+                        <span className="text-sm font-semibold">Impact preview</span>
+                      </div>
+                      <Badge variant="outline" className="text-[10px]">
+                        {editingImpact?.share.toFixed(1)}% of total
+                      </Badge>
+                    </div>
+                    <div className="h-2 rounded-full bg-secondary overflow-hidden">
+                      <div
+                        className="h-full transition-all"
+                        style={{
+                          width: `${editingImpact?.share ?? 0}%`,
+                          background: "var(--gradient-primary)",
+                        }}
+                      />
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 text-center">
+                      <div className="p-2 rounded-lg bg-secondary/50">
+                        <div className="text-[10px] uppercase text-muted-foreground tracking-wider">Weight</div>
+                        <div className="text-base font-semibold tabular-nums">
+                          {Number(editing.risk_weight ?? 0).toFixed(1)}
+                        </div>
+                      </div>
+                      <div className="p-2 rounded-lg bg-secondary/50">
+                        <div className="text-[10px] uppercase text-muted-foreground tracking-wider">Total after</div>
+                        <div className="text-base font-semibold tabular-nums">
+                          {editingImpact?.totalAfter.toFixed(1)}
+                        </div>
+                      </div>
+                      <div className="p-2 rounded-lg bg-secondary/50">
+                        <div className="text-[10px] uppercase text-muted-foreground tracking-wider">Rank</div>
+                        <div className="text-base font-semibold tabular-nums">
+                          {editingImpact?.rank ? `#${editingImpact.rank}` : "—"}
+                        </div>
+                      </div>
+                    </div>
+                    {!editing.risk_direction && Number(editing.risk_weight ?? 0) > 0 && (
+                      <div className="flex items-start gap-2 p-2 rounded-md border border-warning/30 bg-warning/5 text-[11px] text-warning">
+                        <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                        <span>Pick a direction so this weight actually moves the score.</span>
+                      </div>
+                    )}
+                  </Card>
                 </TabsContent>
               </Tabs>
 
