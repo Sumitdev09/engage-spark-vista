@@ -5,8 +5,18 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { Search, RefreshCw } from "lucide-react";
+import { Search, RefreshCw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 const HREmployees = () => {
@@ -16,6 +26,8 @@ const HREmployees = () => {
   const [active, setActive] = useState<any | null>(null);
   const [, setTick] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState<any | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const reloadTimer = useRef<number | null>(null);
 
   const load = async () => {
@@ -52,6 +64,27 @@ const HREmployees = () => {
       toast.error(e?.message ?? "Refresh failed");
     } finally {
       setRefreshing(false);
+    }
+  };
+
+  const handleDelete = async (employee: any) => {
+    if (!employee?.user_id) return;
+    setDeleting(true);
+    try {
+      const uid = employee.user_id;
+      await supabase.from("risk_assessments").delete().eq("user_id", uid);
+      await supabase.from("submissions").delete().eq("user_id", uid);
+      await supabase.from("user_roles").delete().eq("user_id", uid);
+      const { error } = await supabase.from("profiles").delete().eq("user_id", uid);
+      if (error) throw error;
+      toast.success(`Removed ${employee.full_name || employee.email}`);
+      setConfirmDelete(null);
+      setActive((prev: any) => (prev?.user_id === uid ? null : prev));
+      await load();
+    } catch (e: any) {
+      toast.error(e?.message ?? "Failed to remove employee");
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -124,6 +157,7 @@ const HREmployees = () => {
                   <th className="text-left p-4 font-medium">Risk score</th>
                   <th className="text-left p-4 font-medium">Risk level</th>
                   <th className="text-left p-4 font-medium">Last updated</th>
+                  <th className="text-right p-4 font-medium">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -145,10 +179,21 @@ const HREmployees = () => {
                       {!r.risk_level && <span className="text-muted-foreground">—</span>}
                     </td>
                     <td className="p-4 text-muted-foreground text-xs">{formatRelative(r.updated_at)}</td>
+                    <td className="p-4 text-right" onClick={(e) => e.stopPropagation()}>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-muted-foreground hover:text-destructive"
+                        onClick={() => setConfirmDelete(r)}
+                        title="Remove employee"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </td>
                   </tr>
                 ))}
                 {filtered.length === 0 && (
-                  <tr><td colSpan={6} className="p-8 text-center text-muted-foreground">No employees yet.</td></tr>
+                  <tr><td colSpan={7} className="p-8 text-center text-muted-foreground">No employees yet.</td></tr>
                 )}
               </tbody>
             </table>
@@ -190,6 +235,17 @@ const HREmployees = () => {
                   </div>
                 </div>
               </DialogHeader>
+              <div className="flex justify-end">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-destructive border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
+                  onClick={() => setConfirmDelete(active)}
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Remove employee
+                </Button>
+              </div>
               <div className="space-y-5">
                 <div className="grid grid-cols-3 gap-3">
                   <Stat label="Risk score" value={active.risk_score !== null ? Number(active.risk_score).toFixed(0) : "—"} />
@@ -229,6 +285,28 @@ const HREmployees = () => {
           )}
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={!!confirmDelete} onOpenChange={(o) => !o && !deleting && setConfirmDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove this employee?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently deletes <span className="font-medium text-foreground">{confirmDelete?.full_name || confirmDelete?.email}</span>'s
+              profile, submission, risk assessment, and role assignments. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={deleting}
+              onClick={(e) => { e.preventDefault(); handleDelete(confirmDelete); }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleting ? "Removing…" : "Remove"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AppLayout>
   );
 };
