@@ -67,31 +67,70 @@ export type Database = {
       }
       profiles: {
         Row: {
+          age: number | null
+          business_travel: string | null
           created_at: string
           department: string | null
+          education: string | null
           email: string | null
+          employee_code: string | null
           full_name: string | null
+          gender: string | null
           id: string
+          job_role: string | null
+          marital_status: string | null
+          monthly_income: number | null
+          overtime: string | null
+          total_working_years: number | null
           updated_at: string
           user_id: string
+          years_at_company: number | null
+          years_in_current_role: number | null
+          years_since_last_promotion: number | null
         }
         Insert: {
+          age?: number | null
+          business_travel?: string | null
           created_at?: string
           department?: string | null
+          education?: string | null
           email?: string | null
+          employee_code?: string | null
           full_name?: string | null
+          gender?: string | null
           id?: string
+          job_role?: string | null
+          marital_status?: string | null
+          monthly_income?: number | null
+          overtime?: string | null
+          total_working_years?: number | null
           updated_at?: string
           user_id: string
+          years_at_company?: number | null
+          years_in_current_role?: number | null
+          years_since_last_promotion?: number | null
         }
         Update: {
+          age?: number | null
+          business_travel?: string | null
           created_at?: string
           department?: string | null
+          education?: string | null
           email?: string | null
+          employee_code?: string | null
           full_name?: string | null
+          gender?: string | null
           id?: string
+          job_role?: string | null
+          marital_status?: string | null
+          monthly_income?: number | null
+          overtime?: string | null
+          total_working_years?: number | null
           updated_at?: string
           user_id?: string
+          years_at_company?: number | null
+          years_in_current_role?: number | null
+          years_since_last_promotion?: number | null
         }
         Relationships: []
       }
