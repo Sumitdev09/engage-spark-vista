@@ -1,521 +1,556 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AppLayout, NavItem } from "@/components/AppLayout";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
-import { DynamicFormRenderer, FormField } from "@/components/DynamicFormRenderer";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
 import {
-  CheckCircle2,
+  Activity,
+  AlertTriangle,
+  Briefcase,
+  Building2,
+  CalendarClock,
+  Check,
+  GraduationCap,
+  HeartHandshake,
+  Home,
+  IdCard,
+  Info,
+  Loader2,
+  Plane,
   Sparkles,
+  Target,
   TrendingUp,
-  ArrowLeft,
-  ArrowRight,
-  Save,
-  Send,
-  ShieldCheck,
-  Flame,
-  Coffee,
-  Sun,
-  Moon,
-  Sunrise,
-  Heart,
-  Zap,
+  User,
+  Wallet,
 } from "lucide-react";
 
-const MOODS = [
-  { key: "great", label: "Great", emoji: "🤩", color: "from-emerald-400 to-teal-500" },
-  { key: "good", label: "Good", emoji: "🙂", color: "from-sky-400 to-indigo-500" },
-  { key: "okay", label: "Okay", emoji: "😐", color: "from-amber-400 to-orange-500" },
-  { key: "low", label: "Low", emoji: "😕", color: "from-rose-400 to-pink-500" },
-  { key: "stressed", label: "Stressed", emoji: "😣", color: "from-red-500 to-fuchsia-600" },
-];
+const SCALES = {
+  satisfaction: ["", "Low", "Medium", "High", "Very High"],
+  balance: ["", "Poor", "Fair", "Good", "Excellent"],
+  generic: ["", "Low", "Medium", "High", "Very High"],
+} as const;
+
+type Profile = {
+  employee_code?: string | null;
+  full_name?: string | null;
+  email?: string | null;
+  gender?: string | null;
+  age?: number | null;
+  department?: string | null;
+  job_role?: string | null;
+  education?: string | null;
+  monthly_income?: number | null;
+  years_at_company?: number | null;
+  years_in_current_role?: number | null;
+  years_since_last_promotion?: number | null;
+  total_working_years?: number | null;
+  marital_status?: string | null;
+  business_travel?: string | null;
+  overtime?: string | null;
+};
+
+type Prediction = {
+  score: number;
+  level: "low" | "medium" | "high";
+  factors: { key: string; label: string; impact: number; value: any }[];
+  insights?: string;
+  recommendations?: string;
+};
 
 const EmployeeDashboard = () => {
   const { user } = useAuth();
-  const [fields, setFields] = useState<FormField[]>([]);
-  const [values, setValues] = useState<Record<string, any>>({});
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [factors, setFactors] = useState<Record<string, any>>({
+    job_satisfaction: 3,
+    work_life_balance: 3,
+    environment_satisfaction: 3,
+    distance_from_home: 5,
+    age: null,
+    job_involvement: 3,
+    relationship_satisfaction: 3,
+  });
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [risk, setRisk] = useState<{ risk_score: number; risk_level: string } | null>(null);
-  const [hasSubmission, setHasSubmission] = useState(false);
-  const [step, setStep] = useState(0);
-  const [mood, setMood] = useState<string | null>(null);
-  const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
-  const [justSubmitted, setJustSubmitted] = useState(false);
-  const formTopRef = useRef<HTMLDivElement>(null);
-
-  const load = async () => {
-    setLoading(true);
-    const [{ data: f }, { data: s }, { data: r }] = await Promise.all([
-      supabase.from("form_fields").select("*").eq("active", true).order("position"),
-      supabase.from("submissions").select("responses").eq("user_id", user!.id).maybeSingle(),
-      supabase.from("risk_assessments").select("risk_score,risk_level").eq("user_id", user!.id).maybeSingle(),
-    ]);
-    setFields((f as any) ?? []);
-    setValues((s?.responses as any) ?? {});
-    setHasSubmission(!!s);
-    setRisk(r ?? null);
-    setLoading(false);
-  };
+  const [predicting, setPredicting] = useState(false);
+  const [prediction, setPrediction] = useState<Prediction | null>(null);
 
   useEffect(() => {
-    if (user) load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (!user) return;
+    (async () => {
+      setLoading(true);
+      const [{ data: p }, { data: s }, { data: r }] = await Promise.all([
+        supabase.from("profiles").select("*").eq("user_id", user.id).maybeSingle(),
+        supabase.from("submissions").select("responses").eq("user_id", user.id).maybeSingle(),
+        supabase.from("risk_assessments").select("*").eq("user_id", user.id).maybeSingle(),
+      ]);
+      setProfile((p as any) ?? {});
+      if (s?.responses) {
+        setFactors((prev) => ({ ...prev, ...(s.responses as any) }));
+      }
+      setFactors((prev) => ({ ...prev, age: prev.age ?? (p as any)?.age ?? null }));
+      if (r) {
+        setPrediction({
+          score: Number(r.risk_score),
+          level: r.risk_level as any,
+          factors: [],
+          insights: r.insights ?? undefined,
+          recommendations: r.recommendations ?? undefined,
+        });
+      }
+      setLoading(false);
+    })();
   }, [user]);
 
-  const grouped = useMemo(() => {
-    const map = new Map<string, FormField[]>();
-    fields.forEach((f) => {
-      const cat = f.category || "General";
-      if (!map.has(cat)) map.set(cat, []);
-      map.get(cat)!.push(f);
-    });
-    return Array.from(map.entries()).map(([category, items]) => ({ category, items }));
-  }, [fields]);
+  const displayName = useMemo(
+    () => profile?.full_name || (user?.email?.split("@")[0] ?? "Employee"),
+    [profile, user]
+  );
+  const initials = useMemo(
+    () =>
+      displayName
+        .split(/\s+/)
+        .filter(Boolean)
+        .slice(0, 2)
+        .map((s) => s[0]?.toUpperCase() ?? "")
+        .join("") || "E",
+    [displayName]
+  );
 
-  const totalSteps = grouped.length;
-  const currentGroup = grouped[step];
-
-  const completion = useMemo(() => {
-    if (!fields.length) return 0;
-    const required = fields.filter((f) => f.required);
-    const filled = required.filter((f) => values[f.field_key] !== undefined && values[f.field_key] !== "" && values[f.field_key] !== null);
-    return Math.round((filled.length / Math.max(required.length, 1)) * 100);
-  }, [fields, values]);
-
-  const stepCompletion = useMemo(() => {
-    if (!currentGroup) return 0;
-    const req = currentGroup.items.filter((f) => f.required);
-    if (!req.length) {
-      const filled = currentGroup.items.filter((f) => values[f.field_key] !== undefined && values[f.field_key] !== "" && values[f.field_key] !== null);
-      return Math.round((filled.length / Math.max(currentGroup.items.length, 1)) * 100);
-    }
-    const filled = req.filter((f) => values[f.field_key] !== undefined && values[f.field_key] !== "" && values[f.field_key] !== null);
-    return Math.round((filled.length / req.length) * 100);
-  }, [currentGroup, values]);
-
-  const greeting = useMemo(() => {
-    const h = new Date().getHours();
-    if (h < 5) return { text: "Working late", Icon: Moon };
-    if (h < 12) return { text: "Good morning", Icon: Sunrise };
-    if (h < 17) return { text: "Good afternoon", Icon: Sun };
-    if (h < 21) return { text: "Good evening", Icon: Coffee };
-    return { text: "Good night", Icon: Moon };
-  }, []);
-
-  const firstName = (user?.email?.split("@")[0] ?? "there").replace(/[._-]+/g, " ").split(" ")[0];
-  const initials = firstName.slice(0, 2).toUpperCase();
-
-  const onSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSaving(true);
+  const handlePredict = async () => {
+    if (!user) return;
+    setPredicting(true);
     try {
-      const missing = fields.filter((f) => f.required && (values[f.field_key] === undefined || values[f.field_key] === "" || values[f.field_key] === null));
-      if (missing.length) {
-        toast.error(`Please fill: ${missing.map((m) => m.label).join(", ")}`);
-        const firstMissing = missing[0];
-        const idx = grouped.findIndex((g) => g.items.some((it) => it.field_key === firstMissing.field_key));
-        if (idx >= 0) setStep(idx);
-        setSaving(false);
-        return;
-      }
-
+      const payload = { ...factors, age: factors.age ?? profile?.age ?? null };
       const { error } = await supabase
         .from("submissions")
-        .upsert({ user_id: user!.id, responses: values, submitted_at: new Date().toISOString() }, { onConflict: "user_id" });
+        .upsert(
+          { user_id: user.id, responses: payload, submitted_at: new Date().toISOString() },
+          { onConflict: "user_id" }
+        );
       if (error) throw error;
 
       const { data: fnRes, error: fnErr } = await supabase.functions.invoke("analyze-risk", { body: {} });
-      if (fnErr) console.warn(fnErr);
-      if (fnRes) setRisk({ risk_score: fnRes.score, risk_level: fnRes.level });
-      setHasSubmission(true);
-      setLastSavedAt(new Date());
-      setJustSubmitted(true);
-      setTimeout(() => setJustSubmitted(false), 2500);
-      toast.success("Your responses have been saved.");
+      if (fnErr) throw fnErr;
+      setPrediction(fnRes as Prediction);
+      toast.success("Attrition prediction complete.");
     } catch (err: any) {
-      toast.error(err.message ?? "Save failed");
+      toast.error(err.message ?? "Prediction failed");
     } finally {
-      setSaving(false);
+      setPredicting(false);
     }
   };
 
-  const saveDraft = async () => {
-    if (!user) return;
-    setSaving(true);
-    try {
-      const { error } = await supabase
-        .from("submissions")
-        .upsert({ user_id: user.id, responses: values }, { onConflict: "user_id" });
-      if (error) throw error;
-      setLastSavedAt(new Date());
-      toast.success("Draft saved");
-    } catch (err: any) {
-      toast.error(err.message ?? "Could not save draft");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const goNext = () => {
-    if (step < totalSteps - 1) {
-      setStep(step + 1);
-      formTopRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }
-  };
-  const goPrev = () => {
-    if (step > 0) {
-      setStep(step - 1);
-      formTopRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }
-  };
-
-  const engagement = risk ? Math.max(0, 100 - Number(risk.risk_score)) : null;
-  const ringValue = engagement ?? completion;
-  const ringDash = 2 * Math.PI * 52;
-  const ringOffset = ringDash - (ringDash * ringValue) / 100;
+  if (loading) {
+    return (
+      <AppLayout nav={<NavItem to="/employee" label="My Pulse" />}>
+        <div className="grid place-items-center py-32">
+          <Loader2 className="h-10 w-10 animate-spin text-primary" />
+        </div>
+      </AppLayout>
+    );
+  }
 
   return (
-    <AppLayout
-      nav={
-        <>
-          <NavItem to="/employee" label="My Pulse" />
-        </>
-      }
-    >
-      <div className="space-y-8 max-w-6xl mx-auto pb-28">
-        {/* HERO */}
-        <div className="relative overflow-hidden rounded-3xl border border-border shadow-elegant">
-          <div className="absolute inset-0 bg-gradient-hero opacity-95" />
-          <div className="absolute -top-24 -right-24 h-72 w-72 rounded-full bg-white/20 blur-3xl animate-pulse" />
-          <div className="absolute -bottom-24 -left-16 h-72 w-72 rounded-full bg-accent/40 blur-3xl animate-pulse" />
-          <div className="absolute inset-0 opacity-[0.07]" style={{ backgroundImage: "radial-gradient(circle at 1px 1px, white 1px, transparent 0)", backgroundSize: "22px 22px" }} />
+    <AppLayout nav={<NavItem to="/employee" label="My Pulse" />}>
+      <TooltipProvider delayDuration={150}>
+        <div className="space-y-6 max-w-6xl mx-auto pb-12">
+          {/* HERO */}
+          <div className="relative overflow-hidden rounded-3xl border border-border shadow-elegant">
+            <div className="absolute inset-0 bg-gradient-hero opacity-95" />
+            <div className="absolute -top-24 -right-24 h-72 w-72 rounded-full bg-white/20 blur-3xl" />
+            <div className="absolute -bottom-24 -left-16 h-72 w-72 rounded-full bg-accent/40 blur-3xl" />
+            <div className="relative p-6 sm:p-8 flex flex-wrap items-center gap-5 text-primary-foreground">
+              <div className="h-16 w-16 rounded-2xl bg-white/15 backdrop-blur-sm border border-white/30 grid place-items-center text-xl font-bold shadow-lg">
+                {initials}
+              </div>
+              <div className="flex-1 min-w-[200px]">
+                <div className="text-xs uppercase tracking-[0.18em] opacity-80">Attrition Prediction</div>
+                <h1 className="text-2xl sm:text-3xl font-bold tracking-tight leading-tight">{displayName}</h1>
+                <div className="flex flex-wrap items-center gap-2 mt-2 text-xs opacity-90">
+                  {profile?.employee_code && <span className="px-2 py-0.5 rounded-full bg-white/15 border border-white/20">ID {profile.employee_code}</span>}
+                  {profile?.department && <span className="px-2 py-0.5 rounded-full bg-white/15 border border-white/20">{profile.department}</span>}
+                  {profile?.job_role && <span className="px-2 py-0.5 rounded-full bg-white/15 border border-white/20">{profile.job_role}</span>}
+                </div>
+              </div>
+              <Button
+                size="lg"
+                onClick={handlePredict}
+                disabled={predicting}
+                className="bg-white text-foreground hover:bg-white/90 shadow-elegant border-0"
+              >
+                {predicting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                {predicting ? "Analyzing…" : "Predict Attrition"}
+              </Button>
+            </div>
+          </div>
 
-          <div className="relative p-6 sm:p-10 grid lg:grid-cols-[1fr_auto] gap-8 items-center text-primary-foreground">
-            <div className="space-y-5">
+          {/* AUTO-FILLED INFO */}
+          <Card className="p-6 shadow-soft">
+            <div className="flex items-center justify-between mb-5">
               <div className="flex items-center gap-3">
-                <div className="h-14 w-14 rounded-2xl bg-white/15 backdrop-blur-sm border border-white/30 grid place-items-center text-lg font-bold shadow-lg">
-                  {initials}
+                <div className="h-10 w-10 rounded-xl bg-primary/10 text-primary grid place-items-center">
+                  <User className="h-5 w-5" />
                 </div>
                 <div>
-                  <div className="flex items-center gap-2 text-xs uppercase tracking-[0.18em] opacity-80">
-                    <greeting.Icon className="h-3.5 w-3.5" />
-                    {greeting.text}
-                  </div>
-                  <h1 className="text-3xl sm:text-4xl font-bold tracking-tight capitalize leading-tight">
-                    {firstName}, how's your day?
-                  </h1>
+                  <h2 className="text-lg font-bold tracking-tight">Employee Information</h2>
+                  <p className="text-xs text-muted-foreground">Auto-filled from the employee database — read only</p>
                 </div>
               </div>
-              <p className="max-w-xl text-sm sm:text-base opacity-90">
-                Your pulse stays private. A few honest answers help your team support you better — and shape a healthier workplace for everyone.
+              <Badge variant="outline" className="gap-1"><Check className="h-3 w-3" /> Verified</Badge>
+            </div>
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              <ReadField icon={<IdCard className="h-4 w-4" />} label="Employee ID" value={profile?.employee_code} />
+              <ReadField icon={<User className="h-4 w-4" />} label="Employee Name" value={profile?.full_name} />
+              <ReadField icon={<User className="h-4 w-4" />} label="Gender" value={profile?.gender} />
+              <ReadField icon={<CalendarClock className="h-4 w-4" />} label="Age" value={profile?.age} />
+              <ReadField icon={<Building2 className="h-4 w-4" />} label="Department" value={profile?.department} />
+              <ReadField icon={<Briefcase className="h-4 w-4" />} label="Job Role" value={profile?.job_role} />
+              <ReadField icon={<GraduationCap className="h-4 w-4" />} label="Education" value={profile?.education} />
+              <ReadField icon={<Wallet className="h-4 w-4" />} label="Monthly Income" value={profile?.monthly_income ? `₹ ${Number(profile.monthly_income).toLocaleString()}` : null} />
+              <ReadField icon={<CalendarClock className="h-4 w-4" />} label="Years at Company" value={profile?.years_at_company} />
+              <ReadField icon={<CalendarClock className="h-4 w-4" />} label="Years in Current Role" value={profile?.years_in_current_role} />
+              <ReadField icon={<CalendarClock className="h-4 w-4" />} label="Years Since Last Promotion" value={profile?.years_since_last_promotion} />
+              <ReadField icon={<CalendarClock className="h-4 w-4" />} label="Total Working Years" value={profile?.total_working_years} />
+              <ReadField icon={<HeartHandshake className="h-4 w-4" />} label="Marital Status" value={profile?.marital_status} />
+              <ReadField icon={<Plane className="h-4 w-4" />} label="Business Travel" value={profile?.business_travel} />
+              <ReadField icon={<Activity className="h-4 w-4" />} label="Overtime" value={profile?.overtime} />
+            </div>
+          </Card>
+
+          {/* EDITABLE FACTORS */}
+          <Card className="relative p-6 shadow-elegant border-primary/20 bg-gradient-to-br from-primary/[0.04] via-card to-accent/[0.04]">
+            <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-primary rounded-t-xl" />
+            <div className="flex items-center justify-between mb-5">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-xl bg-gradient-primary text-primary-foreground grid place-items-center shadow-elegant">
+                  <Target className="h-5 w-5" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold tracking-tight">Employee Retention & Satisfaction Factors</h2>
+                  <p className="text-xs text-muted-foreground">Update the inputs below before running the prediction</p>
+                </div>
+              </div>
+              <Badge className="bg-primary/10 text-primary border-primary/20">Editable</Badge>
+            </div>
+
+            <div className="grid md:grid-cols-2 gap-4">
+              <ScaleField
+                label="Job Satisfaction"
+                tooltip="How satisfied are you with your current role?"
+                value={factors.job_satisfaction}
+                onChange={(v) => setFactors((f) => ({ ...f, job_satisfaction: v }))}
+                labels={SCALES.satisfaction}
+              />
+              <ScaleField
+                label="Work-Life Balance"
+                tooltip="Balance between professional and personal life."
+                value={factors.work_life_balance}
+                onChange={(v) => setFactors((f) => ({ ...f, work_life_balance: v }))}
+                labels={SCALES.balance}
+              />
+              <ScaleField
+                label="Environment Satisfaction"
+                tooltip="Unhappy work environment increases attrition risk."
+                value={factors.environment_satisfaction}
+                onChange={(v) => setFactors((f) => ({ ...f, environment_satisfaction: v }))}
+                labels={SCALES.satisfaction}
+              />
+              <NumberField
+                label="Distance From Home (KM)"
+                tooltip="Long commuting distances may increase employee attrition."
+                icon={<Home className="h-4 w-4" />}
+                value={factors.distance_from_home}
+                onChange={(v) => setFactors((f) => ({ ...f, distance_from_home: v }))}
+              />
+              <NumberField
+                label="Age"
+                tooltip="Younger employees tend to switch jobs more frequently."
+                icon={<CalendarClock className="h-4 w-4" />}
+                value={factors.age}
+                onChange={(v) => setFactors((f) => ({ ...f, age: v }))}
+              />
+              <ScaleField
+                label="Job Involvement"
+                tooltip="Low job involvement may indicate employee disengagement."
+                value={factors.job_involvement}
+                onChange={(v) => setFactors((f) => ({ ...f, job_involvement: v }))}
+                labels={SCALES.generic}
+              />
+              <ScaleField
+                label="Relationship Satisfaction"
+                tooltip="Poor workplace relationships may contribute to employee turnover."
+                value={factors.relationship_satisfaction}
+                onChange={(v) => setFactors((f) => ({ ...f, relationship_satisfaction: v }))}
+                labels={SCALES.satisfaction}
+              />
+            </div>
+
+            <div className="mt-6 flex flex-wrap items-center justify-end gap-3 pt-4 border-t border-border">
+              <p className="text-xs text-muted-foreground mr-auto flex items-center gap-1.5">
+                <Info className="h-3.5 w-3.5" /> Your inputs will be combined with your profile data to generate the prediction.
               </p>
-
-              {/* MOOD ORBS */}
-              <div className="flex flex-wrap gap-2 pt-1">
-                {MOODS.map((m) => {
-                  const active = mood === m.key;
-                  return (
-                    <button
-                      key={m.key}
-                      type="button"
-                      onClick={() => setMood(m.key)}
-                      className={`group relative px-3.5 py-2 rounded-xl text-sm font-medium transition-all border ${
-                        active
-                          ? "bg-white text-foreground border-white shadow-lg scale-105"
-                          : "bg-white/10 border-white/20 hover:bg-white/20 hover:scale-105"
-                      }`}
-                    >
-                      <span className="mr-1.5 text-base">{m.emoji}</span>
-                      {m.label}
-                      {active && <span className="absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full bg-accent ring-2 ring-white animate-pulse" />}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* RING */}
-            <div className="relative grid place-items-center">
-              <svg viewBox="0 0 120 120" className="h-44 w-44 -rotate-90 drop-shadow-2xl">
-                <circle cx="60" cy="60" r="52" stroke="white" strokeOpacity="0.18" strokeWidth="10" fill="none" />
-                <circle
-                  cx="60"
-                  cy="60"
-                  r="52"
-                  stroke="white"
-                  strokeWidth="10"
-                  fill="none"
-                  strokeLinecap="round"
-                  strokeDasharray={ringDash}
-                  strokeDashoffset={ringOffset}
-                  style={{ transition: "stroke-dashoffset 800ms cubic-bezier(0.22,1,0.36,1)" }}
-                />
-              </svg>
-              <div className="absolute inset-0 grid place-items-center text-center">
-                <div>
-                  <div className="text-4xl font-bold leading-none">{Math.round(ringValue)}%</div>
-                  <div className="mt-1 text-[10px] uppercase tracking-[0.2em] opacity-80">
-                    {engagement !== null ? "Engagement" : "Progress"}
-                  </div>
-                </div>
-              </div>
-              {justSubmitted && (
-                <div className="absolute inset-0 rounded-full animate-ping bg-white/30" />
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* STAT STRIP */}
-        <div className="grid sm:grid-cols-4 gap-4">
-          <StatCard
-            icon={<CheckCircle2 className="h-5 w-5" />}
-            tone="primary"
-            label="Completion"
-            value={`${completion}%`}
-            sub={<div className="mt-2 h-1.5 bg-secondary rounded-full overflow-hidden"><div className="h-full bg-gradient-primary transition-all duration-700" style={{ width: `${completion}%` }} /></div>}
-          />
-          <StatCard
-            icon={<TrendingUp className="h-5 w-5" />}
-            tone="success"
-            label="Engagement"
-            value={engagement === null ? "—" : `${engagement.toFixed(0)}%`}
-            sub={<p className="text-xs text-muted-foreground mt-2">Based on your latest pulse signals.</p>}
-          />
-          <StatCard
-            icon={<Flame className="h-5 w-5" />}
-            tone="warning"
-            label="Current step"
-            value={`${Math.min(step + 1, Math.max(totalSteps, 1))}/${Math.max(totalSteps, 1)}`}
-            sub={<p className="text-xs text-muted-foreground mt-2 truncate">{currentGroup?.category ?? "—"}</p>}
-          />
-          <StatCard
-            icon={<ShieldCheck className="h-5 w-5" />}
-            tone="accent"
-            label="Status"
-            value=""
-            sub={
-              <div className="flex items-center gap-2 mt-1">
-                {hasSubmission ? (
-                  <Badge className="bg-success text-success-foreground">Submitted</Badge>
-                ) : (
-                  <Badge variant="secondary">Not started</Badge>
-                )}
-                {lastSavedAt && (
-                  <span className="text-[10px] text-muted-foreground">saved {lastSavedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
-                )}
-              </div>
-            }
-          />
-        </div>
-
-        {/* MAIN GRID */}
-        <div ref={formTopRef} className="grid lg:grid-cols-[260px_1fr] gap-6">
-          {/* STEP RAIL */}
-          <Card className="p-4 h-fit lg:sticky lg:top-24 shadow-soft">
-            <div className="flex items-center justify-between mb-3">
-              <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Sections</div>
-              <Badge variant="outline" className="text-[10px]">{totalSteps} steps</Badge>
-            </div>
-            {grouped.length === 0 ? (
-              <p className="text-xs text-muted-foreground">No sections yet.</p>
-            ) : (
-              <ol className="space-y-1.5">
-                {grouped.map((g, i) => {
-                  const req = g.items.filter((f) => f.required);
-                  const done = req.every((f) => values[f.field_key] !== undefined && values[f.field_key] !== "" && values[f.field_key] !== null);
-                  const active = i === step;
-                  return (
-                    <li key={g.category}>
-                      <button
-                        type="button"
-                        onClick={() => setStep(i)}
-                        className={`w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-xl border transition-all ${
-                          active
-                            ? "border-primary bg-primary/5 shadow-sm"
-                            : "border-transparent hover:border-border hover:bg-secondary/60"
-                        }`}
-                      >
-                        <div
-                          className={`h-7 w-7 rounded-full grid place-items-center text-[11px] font-semibold transition ${
-                            done
-                              ? "bg-success text-success-foreground"
-                              : active
-                              ? "bg-gradient-primary text-primary-foreground shadow-elegant"
-                              : "bg-secondary text-muted-foreground"
-                          }`}
-                        >
-                          {done ? <CheckCircle2 className="h-3.5 w-3.5" /> : i + 1}
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="text-sm font-medium truncate">{g.category}</div>
-                          <div className="text-[10px] text-muted-foreground">{g.items.length} questions</div>
-                        </div>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ol>
-            )}
-
-            <div className="mt-4 pt-4 border-t border-border space-y-2">
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-muted-foreground">Overall</span>
-                <span className="font-semibold">{completion}%</span>
-              </div>
-              <div className="h-1.5 bg-secondary rounded-full overflow-hidden">
-                <div className="h-full bg-gradient-primary transition-all duration-700" style={{ width: `${completion}%` }} />
-              </div>
+              <Button onClick={handlePredict} disabled={predicting} className="bg-gradient-primary border-0 shadow-elegant">
+                {predicting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                {predicting ? "Analyzing…" : "Predict Attrition"}
+              </Button>
             </div>
           </Card>
 
-          {/* FORM CARD */}
-          <Card className="relative p-6 sm:p-8 shadow-soft overflow-hidden">
-            <div className="absolute top-0 left-0 right-0 h-1 bg-secondary">
-              <div className="h-full bg-gradient-primary transition-all duration-700" style={{ width: `${stepCompletion}%` }} />
-            </div>
-
-            <form onSubmit={onSubmit} className="space-y-8">
-              {loading ? (
-                <div className="grid place-items-center py-16">
-                  <div className="h-10 w-10 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-                </div>
-              ) : fields.length === 0 ? (
-                <div className="py-16 text-center space-y-3">
-                  <div className="mx-auto h-14 w-14 rounded-2xl bg-secondary grid place-items-center">
-                    <Sparkles className="h-6 w-6 text-muted-foreground" />
-                  </div>
-                  <p className="text-sm text-muted-foreground">No survey fields yet — please check back later.</p>
-                </div>
-              ) : currentGroup ? (
-                <div key={currentGroup.category} className="animate-fade-in space-y-6">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <div className="text-xs uppercase tracking-widest text-muted-foreground">
-                        Step {step + 1} of {totalSteps}
-                      </div>
-                      <h2 className="text-2xl font-bold tracking-tight mt-1 flex items-center gap-2">
-                        <Zap className="h-5 w-5 text-primary" />
-                        {currentGroup.category}
-                      </h2>
-                      <p className="text-sm text-muted-foreground mt-1">
-                        {currentGroup.items.length} question{currentGroup.items.length === 1 ? "" : "s"} • takes about a minute
-                      </p>
-                    </div>
-                    <Badge variant="outline" className="shrink-0">{stepCompletion}% done</Badge>
-                  </div>
-
-                  <DynamicFormRenderer
-                    fields={currentGroup.items}
-                    values={values}
-                    onChange={(k, v) => setValues((prev) => ({ ...prev, [k]: v }))}
-                  />
-                </div>
-              ) : null}
-
-              {/* INLINE NAV */}
-              {totalSteps > 0 && (
-                <div className="flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-border">
-                  <Button type="button" variant="ghost" onClick={goPrev} disabled={step === 0}>
-                    <ArrowLeft className="h-4 w-4" /> Previous
-                  </Button>
-                  <div className="flex items-center gap-1">
-                    {grouped.map((_, i) => (
-                      <span
-                        key={i}
-                        className={`h-1.5 rounded-full transition-all ${
-                          i === step ? "w-6 bg-primary" : i < step ? "w-4 bg-primary/50" : "w-4 bg-secondary"
-                        }`}
-                      />
-                    ))}
-                  </div>
-                  {step < totalSteps - 1 ? (
-                    <Button type="button" onClick={goNext} className="bg-gradient-primary border-0 shadow-elegant">
-                      Next <ArrowRight className="h-4 w-4" />
-                    </Button>
-                  ) : (
-                    <Button type="submit" disabled={saving} className="bg-gradient-primary border-0 shadow-elegant">
-                      <Send className="h-4 w-4" />
-                      {saving ? "Saving…" : hasSubmission ? "Update responses" : "Submit"}
-                    </Button>
-                  )}
-                </div>
-              )}
-            </form>
-          </Card>
+          {/* PREDICTION RESULT */}
+          {prediction && <PredictionCard p={prediction} />}
         </div>
-      </div>
-
-      {/* STICKY ACTION BAR */}
-      {!loading && fields.length > 0 && (
-        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 w-[min(96vw,720px)]">
-          <div className="flex items-center gap-3 rounded-2xl border border-border bg-card/90 backdrop-blur-xl shadow-elegant px-4 py-2.5">
-            <div className="flex items-center gap-2">
-              <Heart className={`h-4 w-4 ${justSubmitted ? "text-destructive animate-ping" : "text-primary"}`} />
-              <span className="text-xs font-medium hidden sm:inline">
-                {completion < 100 ? `${100 - completion}% to go` : "All set — ready to send"}
-              </span>
-            </div>
-            <div className="flex-1 h-1.5 bg-secondary rounded-full overflow-hidden">
-              <div className="h-full bg-gradient-primary transition-all duration-700" style={{ width: `${completion}%` }} />
-            </div>
-            <Button type="button" size="sm" variant="outline" onClick={saveDraft} disabled={saving}>
-              <Save className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Save draft</span>
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              onClick={(e) => onSubmit(e as any)}
-              disabled={saving}
-              className="bg-gradient-primary border-0 shadow-elegant"
-            >
-              <Send className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">{hasSubmission ? "Update" : "Submit"}</span>
-            </Button>
-          </div>
-        </div>
-      )}
+      </TooltipProvider>
     </AppLayout>
   );
 };
 
-const StatCard = ({
+/* ============== SUB-COMPONENTS ============== */
+
+const ReadField = ({
   icon,
   label,
   value,
-  sub,
-  tone,
 }: {
   icon: React.ReactNode;
   label: string;
+  value: any;
+}) => {
+  const display = value === null || value === undefined || value === "" ? "—" : String(value);
+  return (
+    <div className="rounded-xl border border-border bg-secondary/40 px-3.5 py-2.5">
+      <div className="flex items-center gap-2 text-[10px] uppercase tracking-wider text-muted-foreground">
+        <span className="text-primary/70">{icon}</span>
+        {label}
+      </div>
+      <div className="text-sm font-semibold mt-1 truncate">{display}</div>
+    </div>
+  );
+};
+
+const ScaleField = ({
+  label,
+  tooltip,
+  value,
+  onChange,
+  labels,
+}: {
+  label: string;
+  tooltip: string;
+  value: number | null | undefined;
+  onChange: (v: number) => void;
+  labels: readonly string[];
+}) => {
+  const v = Number(value ?? 0);
+  return (
+    <div className="rounded-xl border border-border bg-card p-3.5 transition hover:border-primary/40 hover:shadow-soft">
+      <div className="flex items-center justify-between mb-2.5">
+        <Label className="text-sm font-semibold flex items-center gap-1.5">
+          {label}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
+            </TooltipTrigger>
+            <TooltipContent className="max-w-[240px]">{tooltip}</TooltipContent>
+          </Tooltip>
+        </Label>
+        <Badge variant="outline" className="text-[10px]">
+          {v ? `${v} · ${labels[v] ?? ""}` : "—"}
+        </Badge>
+      </div>
+      <div className="grid grid-cols-4 gap-1.5">
+        {[1, 2, 3, 4].map((n) => {
+          const active = v === n;
+          return (
+            <button
+              key={n}
+              type="button"
+              onClick={() => onChange(n)}
+              className={`relative rounded-lg border px-2 py-2 text-xs font-medium transition-all ${
+                active
+                  ? "border-primary bg-gradient-primary text-primary-foreground shadow-elegant scale-[1.02]"
+                  : "border-border bg-secondary/40 text-muted-foreground hover:border-primary/40 hover:text-foreground"
+              }`}
+            >
+              <div className="text-sm font-bold leading-none">{n}</div>
+              <div className="text-[10px] mt-0.5 opacity-90 truncate">{labels[n]}</div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
+const NumberField = ({
+  label,
+  tooltip,
+  icon,
+  value,
+  onChange,
+}: {
+  label: string;
+  tooltip: string;
+  icon: React.ReactNode;
+  value: number | null | undefined;
+  onChange: (v: number | null) => void;
+}) => (
+  <div className="rounded-xl border border-border bg-card p-3.5 transition hover:border-primary/40 hover:shadow-soft">
+    <Label className="text-sm font-semibold flex items-center gap-1.5 mb-2.5">
+      <span className="text-primary">{icon}</span>
+      {label}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
+        </TooltipTrigger>
+        <TooltipContent className="max-w-[240px]">{tooltip}</TooltipContent>
+      </Tooltip>
+    </Label>
+    <Input
+      type="number"
+      min={0}
+      value={value ?? ""}
+      onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value))}
+      className="h-10"
+    />
+  </div>
+);
+
+const PredictionCard = ({ p }: { p: Prediction }) => {
+  const willAttrite = p.score >= 50;
+  const probability = Math.round(p.score);
+  const toneMap = {
+    low: { ring: "hsl(var(--success))", chip: "bg-success/10 text-success border-success/30", text: "Low" },
+    medium: { ring: "hsl(var(--warning))", chip: "bg-warning/10 text-warning border-warning/30", text: "Medium" },
+    high: { ring: "hsl(var(--destructive))", chip: "bg-destructive/10 text-destructive border-destructive/30", text: "High" },
+  } as const;
+  const tone = toneMap[p.level] ?? toneMap.low;
+  const recItems = (p.recommendations ?? "")
+    .split("\n")
+    .map((s) => s.replace(/^[-•\s]+/, "").trim())
+    .filter(Boolean);
+
+  return (
+    <Card className="p-6 shadow-elegant overflow-hidden border-primary/20">
+      <div className="flex items-center justify-between mb-5">
+        <div className="flex items-center gap-3">
+          <div className="h-10 w-10 rounded-xl bg-accent/15 text-accent-foreground grid place-items-center">
+            <TrendingUp className="h-5 w-5" />
+          </div>
+          <div>
+            <h2 className="text-lg font-bold tracking-tight">Attrition Risk Analysis</h2>
+            <p className="text-xs text-muted-foreground">Model output based on profile + satisfaction factors</p>
+          </div>
+        </div>
+        <Badge className={tone.chip} variant="outline">{tone.text} Risk</Badge>
+      </div>
+
+      <div className="grid md:grid-cols-[auto_1fr] gap-6 items-center">
+        <div className="relative grid place-items-center">
+          <div
+            className="h-36 w-36 rounded-full grid place-items-center"
+            style={{ background: `conic-gradient(${tone.ring} ${probability * 3.6}deg, hsl(var(--secondary)) 0)` }}
+          >
+            <div className="h-28 w-28 rounded-full bg-card grid place-items-center text-center">
+              <div>
+                <div className="text-3xl font-bold leading-none">{probability}%</div>
+                <div className="text-[10px] uppercase tracking-widest text-muted-foreground mt-1">Probability</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <div className="grid sm:grid-cols-3 gap-3">
+            <KPI
+              label="Prediction"
+              icon={willAttrite ? <AlertTriangle className="h-4 w-4" /> : <Check className="h-4 w-4" />}
+              value={willAttrite ? "Yes" : "No"}
+              tone={willAttrite ? "danger" : "success"}
+            />
+            <KPI label="Risk Score" icon={<Activity className="h-4 w-4" />} value={`${probability}/100`} tone="primary" />
+            <KPI label="Risk Level" icon={<Target className="h-4 w-4" />} value={tone.text} tone={p.level === "high" ? "danger" : p.level === "medium" ? "warning" : "success"} />
+          </div>
+
+          {p.insights && (
+            <div className="rounded-xl border border-border bg-secondary/40 p-3.5">
+              <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Insights</div>
+              <p className="text-sm leading-relaxed">{p.insights}</p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {p.factors?.length > 0 && (
+        <div className="mt-6">
+          <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Key Contributing Factors</div>
+          <div className="space-y-2">
+            {p.factors.map((f) => {
+              const max = Math.max(...p.factors.map((x) => x.impact), 1);
+              const w = Math.round((f.impact / max) * 100);
+              return (
+                <div key={f.key} className="rounded-lg border border-border bg-card p-3">
+                  <div className="flex items-center justify-between text-sm mb-1.5">
+                    <span className="font-medium">{f.label}</span>
+                    <span className="text-xs text-muted-foreground">impact {f.impact.toFixed(1)}</span>
+                  </div>
+                  <div className="h-1.5 bg-secondary rounded-full overflow-hidden">
+                    <div className="h-full bg-gradient-primary transition-all duration-700" style={{ width: `${w}%` }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {recItems.length > 0 && (
+        <div className="mt-6 rounded-xl border border-primary/20 bg-primary/5 p-4">
+          <div className="text-xs font-semibold uppercase tracking-wider text-primary mb-2 flex items-center gap-1.5">
+            <HeartHandshake className="h-3.5 w-3.5" /> Retention Recommendations
+          </div>
+          <ul className="space-y-1.5">
+            {recItems.map((r, i) => (
+              <li key={i} className="text-sm flex gap-2">
+                <Check className="h-4 w-4 text-success shrink-0 mt-0.5" /> {r}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </Card>
+  );
+};
+
+const KPI = ({
+  label,
+  icon,
+  value,
+  tone,
+}: {
+  label: string;
+  icon: React.ReactNode;
   value: string;
-  sub?: React.ReactNode;
-  tone: "primary" | "success" | "warning" | "accent";
+  tone: "primary" | "success" | "warning" | "danger";
 }) => {
   const tones: Record<string, string> = {
     primary: "bg-primary/10 text-primary",
     success: "bg-success/10 text-success",
     warning: "bg-warning/10 text-warning",
-    accent: "bg-accent/15 text-accent-foreground",
+    danger: "bg-destructive/10 text-destructive",
   };
   return (
-    <Card className="p-5 shadow-soft hover:shadow-elegant transition-all hover:-translate-y-0.5 group">
+    <div className="rounded-xl border border-border bg-card p-3">
       <div className="flex items-center justify-between">
-        <div className="min-w-0">
-          <div className="text-xs uppercase tracking-wider text-muted-foreground">{label}</div>
-          {value && <div className="text-2xl font-bold mt-1">{value}</div>}
-        </div>
-        <div className={`h-10 w-10 rounded-xl grid place-items-center ${tones[tone]} group-hover:scale-110 transition-transform`}>
-          {icon}
-        </div>
+        <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
+        <div className={`h-7 w-7 rounded-lg grid place-items-center ${tones[tone]}`}>{icon}</div>
       </div>
-      {sub}
-    </Card>
+      <div className="text-xl font-bold mt-1">{value}</div>
+    </div>
   );
 };
 
